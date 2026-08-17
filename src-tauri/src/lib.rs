@@ -164,6 +164,43 @@ fn delete_note(app: tauri::AppHandle, slug: String) -> Result<(), String> {
     Ok(())
 }
 
+/// YouTube's embedded player rejects pages without a valid HTTP referer
+/// (error 153). The packaged app runs on `tauri://localhost` on macOS/Linux,
+/// which sends none — so we serve a tiny player wrapper page from a real
+/// http origin on the loopback interface and embed that instead. The
+/// wrapper talks to the app via postMessage (see player.ts).
+static EMBED_HTML: &str = include_str!("embed.html");
+static EMBED_PORT: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
+
+fn start_embed_server() -> u16 {
+    use std::io::{Read, Write};
+    let listener =
+        std::net::TcpListener::bind(("127.0.0.1", 0)).expect("failed to bind embed server");
+    let port = listener.local_addr().expect("embed server addr").port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            std::thread::spawn(move || {
+                // Drain the request head; every GET gets the same page.
+                let mut buf = [0u8; 4096];
+                let _ = stream.read(&mut buf);
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{}",
+                    EMBED_HTML.len(),
+                    EMBED_HTML
+                );
+                let _ = stream.write_all(resp.as_bytes());
+            });
+        }
+    });
+    port
+}
+
+#[tauri::command]
+fn embed_port() -> u16 {
+    *EMBED_PORT.get_or_init(start_embed_server)
+}
+
 /// Select the note's file in the system file manager (Finder on macOS).
 #[tauri::command]
 fn reveal_note(app: tauri::AppHandle, slug: String) -> Result<(), String> {
@@ -181,6 +218,11 @@ fn open_notes_dir(app: tauri::AppHandle) -> Result<(), String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .setup(|_| {
+            // Eager so the first video doesn't pay the startup cost.
+            EMBED_PORT.get_or_init(start_embed_server);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             list_notes,
             list_folders,
@@ -189,7 +231,8 @@ pub fn run() {
             write_note,
             delete_note,
             reveal_note,
-            open_notes_dir
+            open_notes_dir,
+            embed_port
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

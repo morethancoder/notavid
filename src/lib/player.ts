@@ -1,7 +1,16 @@
 /**
  * Thin wrapper around the YouTube IFrame Player API.
  * https://developers.google.com/youtube/iframe_api_reference
+ *
+ * Two backends behind one interface:
+ * - Direct IFrame API when the page has a real http(s) origin (dev server,
+ *   Windows/Android `http://tauri.localhost`).
+ * - A proxied player when the page runs on a custom scheme
+ *   (`tauri://localhost` on macOS/Linux): YouTube rejects embeds without an
+ *   HTTP referer (error 153), so the Rust side serves a wrapper page on
+ *   127.0.0.1 and we drive it over postMessage.
  */
+import { invoke, isTauri } from "@tauri-apps/api/core";
 
 declare global {
   interface Window {
@@ -81,14 +90,19 @@ export interface VideoPlayer {
   destroy(): void;
 }
 
+interface PlayerCallbacks {
+  onReady?: () => void;
+  onStateChange?: (state: number) => void;
+}
+
 export async function createPlayer(
   el: HTMLElement,
   videoId: string,
-  callbacks: {
-    onReady?: () => void;
-    onStateChange?: (state: number) => void;
-  } = {},
+  callbacks: PlayerCallbacks = {},
 ): Promise<VideoPlayer> {
+  if (isTauri() && !window.location.protocol.startsWith("http")) {
+    return createProxyPlayer(el, videoId, callbacks);
+  }
   await loadIframeApi();
   let ready = false;
   const player: YT.Player = await new Promise((resolve) => {
@@ -125,5 +139,56 @@ export async function createPlayer(
     setPlaybackRate: (rate) => ready && player.setPlaybackRate(rate),
     loadVideo: (id) => ready && player.cueVideoById(id),
     destroy: () => player.destroy(),
+  };
+}
+
+async function createProxyPlayer(
+  el: HTMLElement,
+  videoId: string,
+  callbacks: PlayerCallbacks,
+): Promise<VideoPlayer> {
+  const port = await invoke<number>("embed_port");
+  const origin = `http://127.0.0.1:${port}`;
+
+  const iframe = document.createElement("iframe");
+  iframe.src = `${origin}/player?v=${encodeURIComponent(videoId)}`;
+  iframe.allow = "autoplay; encrypted-media; picture-in-picture; web-share";
+  iframe.style.cssText = "width:100%;height:100%;border:0;display:block";
+  el.appendChild(iframe);
+
+  // Sync getters read the last snapshot the wrapper pushes (every 200ms and
+  // on every state change), since postMessage can't answer synchronously.
+  let snap = { time: 0, rate: 1, title: "", state: PlayerState.UNSTARTED as number };
+  const send = (cmd: string, value?: number | string) =>
+    iframe.contentWindow?.postMessage({ cmd, value }, origin);
+
+  await new Promise<void>((resolve) => {
+    window.addEventListener("message", function onMsg(e: MessageEvent) {
+      if (e.origin !== origin || e.source !== iframe.contentWindow) return;
+      const msg = e.data;
+      if (msg?.type === "ready") {
+        callbacks.onReady?.();
+        resolve();
+      } else if (msg?.type === "state") {
+        callbacks.onStateChange?.(msg.data);
+      } else if (msg?.type === "snap") {
+        snap = msg;
+      }
+      // Listener stays for the iframe's lifetime; removed in destroy().
+      if (!iframe.isConnected) window.removeEventListener("message", onMsg);
+    });
+  });
+
+  return {
+    play: () => send("play"),
+    pause: () => send("pause"),
+    seek: (s) => send("seek", s),
+    currentTime: () => snap.time,
+    isPlaying: () => snap.state === PlayerState.PLAYING,
+    videoTitle: () => snap.title,
+    playbackRate: () => snap.rate,
+    setPlaybackRate: (rate) => send("rate", rate),
+    loadVideo: (id) => send("cue", id),
+    destroy: () => iframe.remove(),
   };
 }
