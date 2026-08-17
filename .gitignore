@@ -14,3 +14,4 @@ src-tauri/gen/android/key.properties
 *.jks
 
 .DS_Store
+dist/
