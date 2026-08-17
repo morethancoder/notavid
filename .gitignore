@@ -1,0 +1,16 @@
+node_modules/
+build/
+.svelte-kit/
+src-tauri/target/
+vite.config.js.timestamp-*
+
+# test artifacts
+.playwright/
+.playwright-mcp/
+
+# android signing — never commit
+src-tauri/gen/android/key.properties
+*.keystore
+*.jks
+
+.DS_Store

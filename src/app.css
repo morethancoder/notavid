@@ -1,0 +1,77 @@
+/*
+ * Design tokens lifted from YouTube's desktop UI.
+ * Light: white base, #0f0f0f text, #606060 secondary, rgba(0,0,0,.05) chips.
+ * Dark:  #0f0f0f base, #212121 raised surfaces, #272727 chips, #aaa secondary.
+ * Red (#f00) is reserved for high-intent actions, matching YouTube's usage.
+ */
+:root {
+  --yt-base: #ffffff;
+  --yt-raised: #ffffff;
+  --yt-menu: #ffffff;
+  --yt-chip: rgba(0, 0, 0, 0.05);
+  --yt-chip-hover: rgba(0, 0, 0, 0.1);
+  --yt-active: rgba(0, 0, 0, 0.1);
+  --yt-border: rgba(0, 0, 0, 0.1);
+  --yt-text: #0f0f0f;
+  --yt-text-secondary: #606060;
+  --yt-red: #ff0000;
+  --yt-blue: #065fd4;
+  --yt-badge-text: #ffffff;
+  --yt-scrim: rgba(0, 0, 0, 0.5);
+  --yt-shadow: 0 4px 32px rgba(0, 0, 0, 0.1);
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --yt-base: #0f0f0f;
+  --yt-raised: #212121;
+  --yt-menu: #282828;
+  --yt-chip: rgba(255, 255, 255, 0.1);
+  --yt-chip-hover: rgba(255, 255, 255, 0.2);
+  --yt-active: rgba(255, 255, 255, 0.2);
+  --yt-border: rgba(255, 255, 255, 0.2);
+  --yt-text: #f1f1f1;
+  --yt-text-secondary: #aaaaaa;
+  --yt-blue: #3ea6ff;
+  --yt-scrim: rgba(0, 0, 0, 0.6);
+  --yt-shadow: 0 4px 32px rgba(0, 0, 0, 0.5);
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--yt-base);
+  color: var(--yt-text);
+  font-family:
+    "Roboto", -apple-system, BlinkMacSystemFont, "SF Arabic", "Segoe UI",
+    "Noto Sans Arabic", Arial, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font-family: inherit;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--yt-chip-hover);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
