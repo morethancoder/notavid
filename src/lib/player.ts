@@ -150,6 +150,10 @@ async function createProxyPlayer(
   const port = await invoke<number>("embed_port");
   const origin = `http://127.0.0.1:${port}`;
 
+  // The direct API path *replaces* `el` with the player iframe, so `el` never
+  // needed dimensions; here the iframe nests inside it, so `el` must fill the
+  // frame or the iframe's percentage height collapses.
+  el.style.cssText = "width:100%;height:100%";
   const iframe = document.createElement("iframe");
   iframe.src = `${origin}/player?v=${encodeURIComponent(videoId)}`;
   iframe.allow = "autoplay; encrypted-media; picture-in-picture; web-share";
