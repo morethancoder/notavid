@@ -14,7 +14,9 @@
   // HTTP referer (tauri://localhost sends none → error 153). The host app
   // drives playback over postMessage; sync getters on the app side read
   // the periodic "snap" snapshots this page pushes back.
-  var videoId = new URLSearchParams(location.search).get("v") || "";
+  var params = new URLSearchParams(location.search);
+  var videoId = params.get("v") || "";
+  var startAt = parseInt(params.get("t") || "0", 10) || 0;
   var player = null;
   var ready = false;
 
@@ -29,6 +31,7 @@
       time: player.getCurrentTime(),
       rate: player.getPlaybackRate(),
       title: (player.getVideoData() || {}).title || "",
+      videoId: (player.getVideoData() || {}).video_id || "",
       state: player.getPlayerState(),
     });
   }
@@ -38,7 +41,10 @@
       videoId: videoId,
       width: "100%",
       height: "100%",
-      playerVars: { rel: 0, modestbranding: 1, enablejsapi: 1, origin: location.origin },
+      playerVars: {
+        rel: 0, modestbranding: 1, enablejsapi: 1, origin: location.origin,
+        start: startAt,
+      },
       events: {
         onReady: function () {
           ready = true;
@@ -63,7 +69,7 @@
       case "pause": player.pauseVideo(); break;
       case "seek": player.seekTo(v, true); snap(); break;
       case "rate": player.setPlaybackRate(v); break;
-      case "cue": player.cueVideoById(v); break;
+      case "cue": player.cueVideoById(v, e.data.start || 0); break;
       case "mute": player.mute(); break;
     }
   });
