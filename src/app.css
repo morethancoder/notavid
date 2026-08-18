@@ -5,6 +5,11 @@
  * Red (#f00) is reserved for high-intent actions, matching YouTube's usage.
  */
 :root {
+  /* System-bar clearance. env() covers iOS/newer WebViews; on Android the
+     native layer overwrites these with the real inset heights (app runs
+     edge-to-edge there, so the WebView sits under the status bar). */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
   --yt-base: #ffffff;
   --yt-raised: #ffffff;
   --yt-menu: #ffffff;
