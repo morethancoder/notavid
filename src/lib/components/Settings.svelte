@@ -1,9 +1,19 @@
 <script lang="ts">
+  import { isTauri } from "@tauri-apps/api/core";
+  import { openUrl } from "@tauri-apps/plugin-opener";
   import { settings, type ThemeSetting, type LanguageSetting } from "$lib/settings.svelte";
   import { t } from "$lib/i18n.svelte";
   import Icon from "./Icon.svelte";
+  import { version } from "../../../package.json";
 
   let { onclose }: { onclose: () => void } = $props();
+
+  const REPO_URL = "https://github.com/morethancoder/notavid";
+
+  function openRepo() {
+    if (isTauri()) openUrl(REPO_URL).catch(() => {});
+    else window.open(REPO_URL, "_blank", "noopener");
+  }
 
   const themeOptions: { value: ThemeSetting; label: () => string }[] = [
     { value: "system", label: () => t("themeSystem") },
@@ -31,6 +41,14 @@
   }
   function toggleAutoPause() {
     settings.autoPause = !settings.autoPause;
+    settings.save();
+  }
+  function toggleIgnoreWhitespace() {
+    settings.ignoreWhitespace = !settings.ignoreWhitespace;
+    settings.save();
+  }
+  function togglePauseOnBlur() {
+    settings.pauseOnBlur = !settings.pauseOnBlur;
     settings.save();
   }
 
@@ -108,6 +126,32 @@
           <span class="knob"></span>
         </button>
       </div>
+      <div class="field row-field">
+        <span class="field-label">{t("ignoreWhitespaceLabel")}</span>
+        <button
+          class="toggle"
+          class:on={settings.ignoreWhitespace}
+          role="switch"
+          aria-checked={settings.ignoreWhitespace}
+          aria-label={t("ignoreWhitespaceLabel")}
+          onclick={toggleIgnoreWhitespace}
+        >
+          <span class="knob"></span>
+        </button>
+      </div>
+      <div class="field row-field">
+        <span class="field-label">{t("pauseOnBlurLabel")}</span>
+        <button
+          class="toggle"
+          class:on={settings.pauseOnBlur}
+          role="switch"
+          aria-checked={settings.pauseOnBlur}
+          aria-label={t("pauseOnBlurLabel")}
+          onclick={togglePauseOnBlur}
+        >
+          <span class="knob"></span>
+        </button>
+      </div>
       <div class="field">
         <span class="field-label">{t("resumeDelay")}</span>
         <div class="chips">
@@ -122,6 +166,19 @@
           {/each}
         </div>
       </div>
+    </section>
+
+    <section>
+      <h3><Icon name="play" size={18} />{t("about")}</h3>
+      <p class="about-tagline">{t("aboutTagline")}</p>
+      <p class="about-body">{t("aboutBody")}</p>
+      <p class="about-meta">
+        <span>{t("aboutDeveloper")} · v{version}</span>
+        <button class="chip" onclick={openRepo}>
+          <Icon name="openInNew" size={14} />
+          {t("aboutSource")}
+        </button>
+      </p>
     </section>
   </div>
 </div>
@@ -205,6 +262,27 @@
     margin-bottom: 0;
     color: var(--yt-text);
     font-size: 0.85rem;
+  }
+  .about-tagline {
+    margin: 0 0 0.4rem;
+    font-size: 0.85rem;
+    font-weight: 500;
+  }
+  .about-body {
+    margin: 0 0 0.75rem;
+    font-size: 0.8rem;
+    line-height: 1.55;
+    color: var(--yt-text-secondary);
+  }
+  .about-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin: 0 0 0.4rem;
+    font-size: 0.78rem;
+    color: var(--yt-text-secondary);
   }
   .chips {
     display: flex;

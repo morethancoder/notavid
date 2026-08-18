@@ -10,8 +10,20 @@ interface Persisted {
   language: LanguageSetting;
   autoPause: boolean;
   delaySeconds: number;
+  /** Whitespace-only edits (spaces, blank lines, deleting them) don't pause. */
+  ignoreWhitespace: boolean;
+  /** Pause the video when the app window loses focus. */
+  pauseOnBlur: boolean;
   /** Custom video player height in px; null = automatic default size. */
   playerHeight: number | null;
+  /** Custom video player width in px (side-by-side layout); null = default. */
+  playerWidth: number | null;
+  /** Desktop layout: video beside the notes instead of above them. */
+  sideBySide: boolean;
+  /** Swap the panes: notes above/before the video instead of after it. */
+  swapPanes: boolean;
+  /** Note column width in px (line length); null = default. */
+  editorWidth: number | null;
   /** Custom sidebar width in px (desktop); null = default. */
   sidebarWidth: number | null;
   /** Sidebar hidden on desktop. */
@@ -23,7 +35,13 @@ const defaults: Persisted = {
   language: "system",
   autoPause: true,
   delaySeconds: 3,
+  ignoreWhitespace: true,
+  pauseOnBlur: true,
   playerHeight: null,
+  playerWidth: null,
+  sideBySide: false,
+  swapPanes: false,
+  editorWidth: null,
   sidebarWidth: null,
   sidebarCollapsed: false,
 };
@@ -46,7 +64,13 @@ class Settings {
   language = $state<LanguageSetting>(defaults.language);
   autoPause = $state(defaults.autoPause);
   delaySeconds = $state(defaults.delaySeconds);
+  ignoreWhitespace = $state(defaults.ignoreWhitespace);
+  pauseOnBlur = $state(defaults.pauseOnBlur);
   playerHeight = $state<number | null>(defaults.playerHeight);
+  playerWidth = $state<number | null>(defaults.playerWidth);
+  sideBySide = $state(defaults.sideBySide);
+  swapPanes = $state(defaults.swapPanes);
+  editorWidth = $state<number | null>(defaults.editorWidth);
   sidebarWidth = $state<number | null>(defaults.sidebarWidth);
   sidebarCollapsed = $state(defaults.sidebarCollapsed);
 
@@ -78,7 +102,13 @@ class Settings {
       language: this.language,
       autoPause: this.autoPause,
       delaySeconds: this.delaySeconds,
+      ignoreWhitespace: this.ignoreWhitespace,
+      pauseOnBlur: this.pauseOnBlur,
       playerHeight: this.playerHeight,
+      playerWidth: this.playerWidth,
+      sideBySide: this.sideBySide,
+      swapPanes: this.swapPanes,
+      editorWidth: this.editorWidth,
       sidebarWidth: this.sidebarWidth,
       sidebarCollapsed: this.sidebarCollapsed,
     };

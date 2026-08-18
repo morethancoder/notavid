@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { Crepe } from "@milkdown/crepe";
   import { insert } from "@milkdown/kit/utils";
+  import { timestampHighlighter, parseTimestamp } from "$lib/timestamps";
   import { settings } from "$lib/settings.svelte";
   import "@milkdown/crepe/theme/common/style.css";
   // Both theme palettes inlined; the active one is injected based on settings.
@@ -28,6 +29,9 @@
 
   let root: HTMLDivElement;
   let crepe: Crepe | null = null;
+  const stripWs = (s: string) => s.replace(/\s+/g, "");
+  // svelte-ignore state_referenced_locally -- the initial content is the diff baseline
+  let lastStripped = stripWs(value);
 
   onMount(() => {
     const instance = new Crepe({
@@ -40,15 +44,25 @@
         },
       },
     });
+    instance.editor.use(timestampHighlighter);
     instance.on((listener) => {
       listener.markdownUpdated((_ctx, markdown) => {
+        // A change that only adds/removes whitespace (spaces, blank lines,
+        // backspacing them) is not "typing" when ignoreWhitespace is on.
+        const stripped = stripWs(markdown);
+        const whitespaceOnly = stripped === lastStripped;
+        lastStripped = stripped;
         onchange?.(markdown);
-        onactivity?.();
+        if (!(settings.ignoreWhitespace && whitespaceOnly)) onactivity?.();
       });
       listener.blur(() => oneditorblur?.());
     });
     instance.create().then(() => {
       crepe = instance;
+      // Crepe normalizes the markdown it serializes (bullet style, escapes),
+      // so re-baseline against its own form — otherwise the first
+      // whitespace-only edit after mount can be misread as typing.
+      lastStripped = stripWs(instance.getMarkdown());
     });
     return () => {
       crepe = null;
@@ -80,12 +94,25 @@
     "Escape",
   ]);
 
+  // Keys whose effect may be whitespace-only; with ignoreWhitespace on they
+  // defer to the content diff in markdownUpdated instead of pausing here.
+  const whitespaceKeys = new Set([" ", "Enter", "Tab", "Backspace", "Delete"]);
+
   function handleKeydown(e: KeyboardEvent) {
     if (e.ctrlKey || e.metaKey || nonTypingKeys.has(e.key)) return;
+    if (settings.ignoreWhitespace && whitespaceKeys.has(e.key)) return;
     onactivity?.();
   }
 
   function handleClick(e: MouseEvent) {
+    const stamp = (e.target as HTMLElement).closest(".nv-timestamp");
+    if (stamp) {
+      const seconds = parseTimestamp(stamp.textContent ?? "");
+      if (seconds != null) {
+        ontimestampclick?.(seconds);
+        return;
+      }
+    }
     const anchor = (e.target as HTMLElement).closest("a");
     if (!anchor?.href) return;
     // Timestamp links ([m:ss](https://youtu.be/ID?t=N)) seek the player
@@ -124,6 +151,21 @@
   .editor-root {
     height: 100%;
   }
+  .editor-root :global(.nv-timestamp) {
+    color: var(--yt-blue);
+    cursor: pointer;
+  }
+  .editor-root :global(.nv-timestamp:hover) {
+    text-decoration: underline;
+  }
+  /* Bottom: room to scroll the last lines up into comfortable view without
+     padding the note with blank lines (clicks in the space land at the end).
+     Inline: Crepe ships 120px gutters that would eat most of a widened
+     column — keep them slim and let the width setting do the spreading. */
+  .editor-root :global(.milkdown .ProseMirror) {
+    padding-bottom: 45vh;
+    padding-inline: 24px;
+  }
   .editor-root :global(.milkdown) {
     height: 100%;
     background: transparent;
@@ -136,7 +178,7 @@
      room for text. */
   @media (max-width: 720px) {
     .editor-root :global(.milkdown .ProseMirror) {
-      padding: 20px 10px 48px;
+      padding: 20px 10px 45vh;
     }
   }
 </style>

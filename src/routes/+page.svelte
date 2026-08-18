@@ -20,6 +20,7 @@
   import { createPlayer, PlayerState, type VideoPlayer } from "$lib/player";
   import { AutoPause } from "$lib/autopause.svelte";
   import { settings } from "$lib/settings.svelte";
+  import { savePosition, resumeTime } from "$lib/positions";
   import { t } from "$lib/i18n.svelte";
 
   let notes = $state<Note[]>([]);
@@ -54,25 +55,100 @@
 
   const autoPause = new AutoPause();
 
+  // Bumped whenever the current player is torn down, so a stale in-flight
+  // createPlayer can't install itself after a reload.
+  let playerGen = 0;
+  let playerLoadFailed = $state(false);
+  let loadTimer: ReturnType<typeof setTimeout> | null = null;
+  // True while a cue for a different video is in flight — position saves are
+  // suppressed so the old video's time can't be stored under the new key.
+  let cueing = false;
+
+  /** Persist the playback position of the video the player currently holds. */
+  function saveCurrentPosition() {
+    if (player && playerVideoId && !cueing) savePosition(playerVideoId, player.currentTime());
+  }
+
   async function showVideo(videoId: string) {
     if (playerVideoId === videoId) return;
+    saveCurrentPosition();
     playerVideoId = videoId;
     if (playerPromise) {
-      (await playerPromise).loadVideo(videoId);
-      // Title for a cued video arrives via the CUED state change.
+      const gen = playerGen;
+      try {
+        const existing = await playerPromise;
+        // Torn down while parked here; reloadPlayer re-cues by itself.
+        if (gen !== playerGen) return;
+        cueing = true;
+        existing.loadVideo(videoId, resumeTime(videoId));
+        // Title for a cued video arrives via the CUED state change.
+      } catch {
+        if (gen === playerGen) {
+          playerPromise = null;
+          playerLoadFailed = true;
+        }
+      }
       return;
     }
+    const gen = playerGen;
+    playerLoadFailed = false;
+    if (loadTimer) clearTimeout(loadTimer);
+    loadTimer = setTimeout(() => {
+      if (gen === playerGen && !player) playerLoadFailed = true;
+    }, 10000);
     const mount = document.createElement("div");
     playerHost.appendChild(mount);
-    playerPromise = createPlayer(mount, videoId, {
-      onReady: () => resolveTitle(),
-      onStateChange: (s) => {
-        autoPause.onPlayerState(s);
-        if (s === PlayerState.CUED || s === PlayerState.PLAYING) resolveTitle();
+    playerPromise = createPlayer(
+      mount,
+      videoId,
+      {
+        onReady: () => resolveTitle(),
+        onStateChange: (s) => {
+          autoPause.onPlayerState(s);
+          if (s === PlayerState.CUED || s === PlayerState.PLAYING) {
+            cueing = false;
+            resolveTitle();
+          }
+          if (s === PlayerState.PAUSED) saveCurrentPosition();
+        },
       },
-    });
-    player = await playerPromise;
-    autoPause.setPlayer(player);
+      { startSeconds: resumeTime(videoId) },
+    );
+    try {
+      const created = await playerPromise;
+      if (gen !== playerGen) {
+        created.destroy();
+        return;
+      }
+      player = created;
+      playerLoadFailed = false;
+      if (loadTimer) clearTimeout(loadTimer);
+      autoPause.setPlayer(player);
+    } catch {
+      // Player creation failed outright (e.g. the API script didn't load).
+      if (gen !== playerGen) return;
+      if (loadTimer) clearTimeout(loadTimer);
+      playerPromise = null;
+      playerHost.replaceChildren();
+      playerLoadFailed = true;
+    }
+  }
+
+  /** Tear the player down and rebuild it (load failures, changed embed options). */
+  function reloadPlayer() {
+    const id = playerVideoId;
+    saveCurrentPosition();
+    playerGen++;
+    cueing = false;
+    if (loadTimer) clearTimeout(loadTimer);
+    player?.destroy();
+    player = null;
+    playerPromise = null;
+    playerVideoId = null;
+    playerLoadFailed = false;
+    autoPause.setPlayer(null);
+    playerHost?.replaceChildren();
+    if (id) showVideo(id);
   }
 
   /**
@@ -81,9 +157,12 @@
    * move it to a human-readable filename.
    */
   async function resolveTitle() {
+    // Pair the title with the video the player actually holds — during a
+    // switch, playerVideoId already points at the next video.
     const title = player?.videoTitle();
-    if (!title) return;
-    const note = notes.find((n) => n.videoId === playerVideoId);
+    const heldVideoId = player?.videoId();
+    if (!title || !heldVideoId) return;
+    const note = notes.find((n) => n.videoId === heldVideoId);
     if (!note || note.title !== "Untitled") return;
     const newSlug = inFolder(folderOf(note.slug), slugify(title, note.videoId));
     const oldSlug = note.slug;
@@ -197,7 +276,10 @@
   }
 
   function seekTo(seconds: number) {
-    player?.seek(seconds);
+    if (!player) return;
+    player.seek(seconds);
+    // Jumping to a timestamp means "watch from here" — start playback.
+    player.play();
   }
 
   // ---- playback shortcuts ----------------------------------------------
@@ -296,21 +378,35 @@
       return;
     }
     if (e.key === "Escape") {
-      if (showSettings) showSettings = false;
+      if (showShortcuts) showShortcuts = false;
+      else if (showSettings) showSettings = false;
       else if (sidebarOpen) sidebarOpen = false;
     }
   }
 
   // ---- player / notes split (desktop) ----------------------------------
   const MIN_PLAYER_H = 150;
+  const MIN_PLAYER_W = 260;
 
   function clampPlayerHeight(h: number): number {
     return Math.round(Math.min(Math.max(h, MIN_PLAYER_H), window.innerHeight * 0.75));
   }
 
+  function clampPlayerWidth(w: number): number {
+    return Math.round(Math.min(Math.max(w, MIN_PLAYER_W), window.innerWidth * 0.7));
+  }
+
+  function toggleLayout() {
+    settings.sideBySide = !settings.sideBySide;
+    settings.save();
+  }
+
+  function toggleSwap() {
+    settings.swapPanes = !settings.swapPanes;
+    settings.save();
+  }
+
   let resizing = $state(false);
-  let dragStartY = 0;
-  let dragStartHeight = 0;
 
   /**
    * Drags listen on window, not the handle: the handle moves with the pane
@@ -332,11 +428,19 @@
   function startPlayerResize(e: PointerEvent) {
     e.preventDefault();
     resizing = true;
-    dragStartY = e.clientY;
-    dragStartHeight = playerHost.offsetHeight;
+    // The handle resizes height in the stacked layout, width side-by-side.
+    // With swapped panes the video sits on the other side of the handle,
+    // so the drag direction inverts.
+    const sideways = settings.sideBySide;
+    const swap = settings.swapPanes ? -1 : 1;
+    const start = sideways ? e.clientX : e.clientY;
+    const startSize = sideways ? playerHost.offsetWidth : playerHost.offsetHeight;
+    const sign = (sideways && settings.dir === "rtl" ? -1 : 1) * swap;
     trackDrag(
       (ev) => {
-        settings.playerHeight = clampPlayerHeight(dragStartHeight + (ev.clientY - dragStartY));
+        const delta = ((sideways ? ev.clientX : ev.clientY) - start) * sign;
+        if (sideways) settings.playerWidth = clampPlayerWidth(startSize + delta);
+        else settings.playerHeight = clampPlayerHeight(startSize + delta);
       },
       () => {
         resizing = false;
@@ -345,14 +449,24 @@
     );
   }
   function resetPlayerSize() {
-    settings.playerHeight = null;
+    if (settings.sideBySide) settings.playerWidth = null;
+    else settings.playerHeight = null;
     settings.save();
   }
   function handleResizerKeydown(e: KeyboardEvent) {
-    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
-    e.preventDefault();
-    const base = settings.playerHeight ?? playerHost.offsetHeight;
-    settings.playerHeight = clampPlayerHeight(base + (e.key === "ArrowDown" ? 24 : -24));
+    const swap = settings.swapPanes ? -1 : 1;
+    if (settings.sideBySide) {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      e.preventDefault();
+      const sign = (settings.dir === "rtl" ? -1 : 1) * swap;
+      const base = settings.playerWidth ?? playerHost.offsetWidth;
+      settings.playerWidth = clampPlayerWidth(base + (e.key === "ArrowRight" ? 24 : -24) * sign);
+    } else {
+      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+      e.preventDefault();
+      const base = settings.playerHeight ?? playerHost.offsetHeight;
+      settings.playerHeight = clampPlayerHeight(base + (e.key === "ArrowDown" ? 24 : -24) * swap);
+    }
     settings.save();
   }
 
@@ -396,12 +510,74 @@
     settings.save();
   }
 
+  // ---- note column width (line length) ----------------------------------
+  const DEFAULT_NOTE_W = 760;
+
+  function clampNoteWidth(w: number): number {
+    return Math.round(Math.min(Math.max(w, 420), 1600));
+  }
+
+  let noteResizing = $state(false);
+
+  function startNoteResize(e: PointerEvent) {
+    e.preventDefault();
+    noteResizing = true;
+    const startX = e.clientX;
+    const startW = settings.editorWidth ?? DEFAULT_NOTE_W;
+    const sign = settings.dir === "rtl" ? -1 : 1;
+    trackDrag(
+      (ev) => {
+        // The column is centered, so it grows on both sides of the handle.
+        settings.editorWidth = clampNoteWidth(startW + (ev.clientX - startX) * 2 * sign);
+      },
+      () => {
+        noteResizing = false;
+        settings.save();
+      },
+    );
+  }
+  function resetNoteWidth() {
+    settings.editorWidth = null;
+    settings.save();
+  }
+  function handleNoteResizerKeydown(e: KeyboardEvent) {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    const sign = settings.dir === "rtl" ? -1 : 1;
+    const delta = (e.key === "ArrowRight" ? 32 : -32) * sign;
+    settings.editorWidth = clampNoteWidth((settings.editorWidth ?? DEFAULT_NOTE_W) + delta);
+    settings.save();
+  }
+
+  // ---- player extras ----------------------------------------------------
+  let showShortcuts = $state(false);
+
+  function handleWindowClick(e: MouseEvent) {
+    if (showShortcuts && !(e.target as HTMLElement).closest(".shortcut-wrap")) {
+      showShortcuts = false;
+    }
+  }
+
   // ---- clock: drives the resume countdown and the timestamp button ----
   let now = $state(Date.now());
   $effect(() => {
-    const interval = setInterval(() => (now = Date.now()), 250);
+    const interval = setInterval(() => {
+      now = Date.now();
+      // Polled rather than listening for window blur: focus can sit inside
+      // the YouTube iframe, where the window never gets another blur event
+      // when the user then switches away from the app.
+      if (settings.pauseOnBlur && !document.hasFocus() && player?.isPlaying()) {
+        autoPause.cancel();
+        player.pause();
+      }
+      if (now - lastPosWrite > 3000 && player?.isPlaying()) {
+        lastPosWrite = now;
+        saveCurrentPosition();
+      }
+    }, 250);
     return () => clearInterval(interval);
   });
+  let lastPosWrite = 0;
   const countdown = $derived(
     autoPause.resumeAt != null ? Math.max(0, Math.ceil((autoPause.resumeAt - now) / 1000)) : null,
   );
@@ -431,6 +607,7 @@
     const beforeUnload = () => {
       // Best-effort synchronous-ish flush when the window closes.
       flushSave();
+      saveCurrentPosition();
     };
     window.addEventListener("beforeunload", beforeUnload);
     return () => {
@@ -440,15 +617,19 @@
   });
 </script>
 
-<svelte:window onkeydown={handleGlobalKeydown} />
+<svelte:window onkeydown={handleGlobalKeydown} onclick={handleWindowClick} />
 
 <div
   class="app"
   class:sidebar-open={sidebarOpen}
   class:sidebar-collapsed={settings.sidebarCollapsed}
+  class:side-by-side={settings.sideBySide}
+  class:swap-panes={settings.swapPanes}
   class:resizing
   class:sb-resizing={sidebarResizing}
+  class:note-resizing={noteResizing}
   style:--sidebar-w={settings.sidebarWidth ? `${settings.sidebarWidth}px` : null}
+  style:--note-w={settings.editorWidth ? `${settings.editorWidth}px` : null}
 >
   <header class="topbar">
     <button
@@ -524,8 +705,18 @@
       class="video-area"
       class:hidden={!activeNote || playerHidden}
       style:--player-h={settings.playerHeight ? `${settings.playerHeight}px` : null}
+      style:--player-w={settings.playerWidth ? `${settings.playerWidth}px` : null}
     >
       <div class="video-frame" bind:this={playerHost}></div>
+      {#if playerLoadFailed}
+        <div class="player-error">
+          <span>{t("playerLoadFailed")}</span>
+          <button class="pill" onclick={reloadPlayer}>
+            <Icon name="refresh" size={16} />
+            {t("retry")}
+          </button>
+        </div>
+      {/if}
     </div>
 
     {#if activeNote}
@@ -536,7 +727,7 @@
         class="player-resizer"
         class:hidden={playerHidden}
         role="separator"
-        aria-orientation="horizontal"
+        aria-orientation={settings.sideBySide ? "vertical" : "horizontal"}
         aria-label={t("resizePlayer")}
         title={t("resizePlayer")}
         tabindex="0"
@@ -563,6 +754,32 @@
         <div class="controls">
           <button
             class="pill"
+            onclick={reloadPlayer}
+            title={t("reloadPlayer")}
+            aria-label={t("reloadPlayer")}
+          >
+            <Icon name="refresh" size={16} />
+          </button>
+          <button
+            class="pill layout-pill"
+            onclick={toggleLayout}
+            title={settings.sideBySide ? t("layoutStacked") : t("layoutSideBySide")}
+            aria-label={settings.sideBySide ? t("layoutStacked") : t("layoutSideBySide")}
+            aria-pressed={settings.sideBySide}
+          >
+            <Icon name={settings.sideBySide ? "splitRows" : "splitColumns"} size={16} />
+          </button>
+          <button
+            class="pill layout-pill"
+            onclick={toggleSwap}
+            title={t("swapPanes")}
+            aria-label={t("swapPanes")}
+            aria-pressed={settings.swapPanes}
+          >
+            <Icon name={settings.sideBySide ? "swapHoriz" : "swapVert"} size={16} />
+          </button>
+          <button
+            class="pill"
             onclick={() => (playerHidden = !playerHidden)}
             title={playerHidden ? t("showPlayer") : t("hidePlayer")}
             aria-label={playerHidden ? t("showPlayer") : t("hidePlayer")}
@@ -578,6 +795,27 @@
             <Icon name="schedule" size={16} />
             <span class="time">{currentTimeLabel}</span>
           </button>
+          <div class="shortcut-wrap">
+            <button
+              class="pill"
+              onclick={() => (showShortcuts = !showShortcuts)}
+              title={t("shortcutsTitle")}
+              aria-label={t("shortcutsTitle")}
+              aria-expanded={showShortcuts}
+            >
+              <Icon name="keyboard" size={16} />
+            </button>
+            {#if showShortcuts}
+              <div class="shortcuts-pop">
+                <h4>{t("shortcutsTitle")}</h4>
+                <div class="shortcut-row"><kbd>Ctrl+Space</kbd><span>{t("shortcutPlayPause")}</span></div>
+                <div class="shortcut-row"><kbd>Ctrl+H · Ctrl+L</kbd><span>{t("shortcutSeek")}</span></div>
+                <div class="shortcut-row"><kbd>Ctrl+J · Ctrl+K</kbd><span>{t("shortcutSpeed")}</span></div>
+                <div class="shortcut-row"><kbd>Ctrl+B</kbd><span>{t("shortcutSidebar")}</span></div>
+                <div class="shortcut-row"><kbd>⌘⇧T / Ctrl+Shift+T</kbd><span>{t("shortcutTimestamp")}</span></div>
+              </div>
+            {/if}
+          </div>
           <label class="delay">
             {t("resumeAfter")}
             <select value={settings.delaySeconds} onchange={handleDelayChange}>
@@ -600,20 +838,34 @@
       </div>
 
       <div class="editor-area">
-        <!-- Keyed on videoId (stable across the async retitle) so the editor
-             isn't recreated mid-typing when the note file gets renamed.
-             Locale is included so the placeholder language follows settings. -->
-        {#key activeNote.videoId + settings.locale}
-          <Editor
-            bind:this={editorRef}
-            value={activeNote.body}
-            placeholder={t("editorPlaceholder")}
-            onchange={handleEditorChange}
-            onactivity={() => autoPause.activity()}
-            oneditorblur={() => autoPause.blur()}
-            ontimestampclick={seekTo}
-          />
-        {/key}
+        <div class="editor-inner">
+          <!-- Keyed on videoId (stable across the async retitle) so the editor
+               isn't recreated mid-typing when the note file gets renamed.
+               Locale is included so the placeholder language follows settings. -->
+          {#key activeNote.videoId + settings.locale}
+            <Editor
+              bind:this={editorRef}
+              value={activeNote.body}
+              placeholder={t("editorPlaceholder")}
+              onchange={handleEditorChange}
+              onactivity={() => autoPause.activity()}
+              oneditorblur={() => autoPause.blur()}
+              ontimestampclick={seekTo}
+            />
+          {/key}
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+          <div
+            class="note-resizer"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={t("resizeNote")}
+            title={t("resizeNote")}
+            tabindex="0"
+            onpointerdown={startNoteResize}
+            ondblclick={resetNoteWidth}
+            onkeydown={handleNoteResizerKeydown}
+          ></div>
+        </div>
       </div>
     {:else if loaded}
       <div class="hero">
@@ -706,6 +958,29 @@
     display: flex;
     justify-content: center;
     flex-shrink: 0;
+    position: relative;
+  }
+  .player-error {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.8rem;
+    background: rgba(0, 0, 0, 0.75);
+    color: #fff;
+    font-size: 0.85rem;
+    text-align: center;
+    padding: 1rem;
+  }
+  .player-error .pill {
+    background: rgba(255, 255, 255, 0.15);
+    color: #fff;
+  }
+  .player-error .pill:hover {
+    background: rgba(255, 255, 255, 0.3);
   }
   .video-area.hidden {
     display: none;
@@ -768,6 +1043,91 @@
   .player-resizer:focus-visible {
     outline: 2px solid var(--yt-blue);
     outline-offset: -2px;
+  }
+
+  /* ---- side-by-side layout (desktop toggle) ---------------------------- */
+  @media (min-width: 721px) {
+    .app.side-by-side .main {
+      display: grid;
+      grid-template-columns: auto auto minmax(0, 1fr);
+      grid-template-rows: auto minmax(0, 1fr);
+    }
+    .app.side-by-side .control-bar {
+      grid-row: 1;
+      grid-column: 1 / -1;
+    }
+    .app.side-by-side .video-area {
+      grid-row: 2;
+      grid-column: 1;
+      min-height: 0;
+      /* Keep the 16:9 frame — flex-stretching it makes YouTube crop the
+         video to fill the tall column. */
+      align-items: flex-start;
+      overflow: hidden;
+      /* The stacked layout's black letterbox column would swallow the whole
+         pane here; only the frame itself should be black. */
+      background: none;
+    }
+    .app.side-by-side .player-resizer {
+      grid-row: 2;
+      grid-column: 2;
+      height: auto;
+      width: 10px;
+      cursor: col-resize;
+    }
+    .app.side-by-side .player-resizer .grip {
+      width: 4px;
+      height: 44px;
+    }
+    .app.side-by-side .editor-area {
+      grid-row: 2;
+      grid-column: 3;
+    }
+    .app.side-by-side .hero {
+      grid-row: 1 / -1;
+      grid-column: 1 / -1;
+    }
+    /* Width-driven; height follows the 16:9 ratio. */
+    .app.side-by-side .video-frame {
+      width: var(--player-w, min(45vw, 820px));
+      height: auto;
+      max-width: none;
+      background: #000;
+    }
+    .app.side-by-side.resizing {
+      cursor: col-resize;
+    }
+
+    /* ---- swapped panes: notes first, video after ----------------------- */
+    .app.swap-panes:not(.side-by-side) .editor-area {
+      order: 1;
+    }
+    .app.swap-panes:not(.side-by-side) .control-bar {
+      order: 2;
+      border-bottom: none;
+      border-top: 1px solid var(--yt-border);
+    }
+    .app.swap-panes:not(.side-by-side) .player-resizer {
+      order: 3;
+    }
+    .app.swap-panes:not(.side-by-side) .video-area {
+      order: 4;
+    }
+    .app.side-by-side.swap-panes .main {
+      grid-template-columns: minmax(0, 1fr) auto auto;
+    }
+    .app.side-by-side.swap-panes .editor-area {
+      grid-column: 1;
+    }
+    .app.side-by-side.swap-panes .video-area {
+      grid-column: 3;
+    }
+
+    /* With the sidebar collapsed, the floating reopen button sits over the
+       control bar's start corner when that bar is the top row. */
+    .app.sidebar-collapsed.side-by-side .control-bar {
+      padding-inline-start: 58px;
+    }
   }
 
   .control-bar {
@@ -837,6 +1197,46 @@
     font-variant-numeric: tabular-nums;
     direction: ltr;
   }
+  .shortcut-wrap {
+    position: relative;
+    display: flex;
+  }
+  .shortcuts-pop {
+    position: absolute;
+    top: calc(100% + 8px);
+    inset-inline-end: 0;
+    z-index: 40;
+    min-width: 250px;
+    background: var(--yt-menu);
+    color: var(--yt-text);
+    border-radius: 12px;
+    box-shadow: var(--yt-shadow);
+    padding: 0.7rem 0.9rem 0.8rem;
+  }
+  .shortcuts-pop h4 {
+    margin: 0 0 0.55rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+  }
+  .shortcut-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    font-size: 0.75rem;
+    color: var(--yt-text-secondary);
+    padding: 0.18rem 0;
+  }
+  .shortcut-row kbd {
+    font-family: inherit;
+    font-size: 0.72rem;
+    color: var(--yt-text);
+    background: var(--yt-chip);
+    border-radius: 5px;
+    padding: 0.12rem 0.4rem;
+    white-space: nowrap;
+    direction: ltr;
+  }
   .delay {
     display: flex;
     align-items: center;
@@ -889,11 +1289,44 @@
   .editor-area {
     flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
     padding: 1.25rem 2rem 4rem;
   }
-  .editor-area > :global(*) {
-    max-width: 760px;
+  /* In-flow wrapper spanning the full scroll height, so the width handle
+     stays alongside the note at every scroll position. */
+  .editor-inner {
+    position: relative;
+    min-height: 100%;
+  }
+  .editor-inner > :global(*) {
+    max-width: var(--note-w, 760px);
     margin: 0 auto;
+  }
+  .note-resizer {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 8px;
+    inset-inline-end: max(0px, calc(50% - var(--note-w, 760px) / 2 - 20px));
+    border-radius: 4px;
+    cursor: col-resize;
+    touch-action: none;
+  }
+  .note-resizer:hover,
+  .note-resizer:focus-visible,
+  .app.note-resizing .note-resizer {
+    background: var(--yt-chip-hover);
+  }
+  .note-resizer:focus-visible {
+    outline: 2px solid var(--yt-blue);
+    outline-offset: -2px;
+  }
+  .app.note-resizing {
+    cursor: col-resize;
+    user-select: none;
+  }
+  .app.note-resizing .video-frame :global(iframe) {
+    pointer-events: none;
   }
 
   .hero {
@@ -940,7 +1373,7 @@
       display: flex;
       align-items: center;
       gap: 0.4rem;
-      padding: 0.4rem 0.6rem;
+      padding: calc(0.4rem + var(--safe-top)) 0.6rem 0.4rem;
       border-bottom: 1px solid var(--yt-border);
       background: var(--yt-base);
       flex-shrink: 0;
@@ -984,6 +1417,8 @@
       inset-inline-start: 0;
       width: min(320px, 86vw);
       z-index: 60;
+      padding-top: var(--safe-top);
+      padding-bottom: var(--safe-bottom);
       background: var(--yt-base);
       box-shadow: var(--yt-shadow);
       transform: translateX(-105%);
@@ -1018,7 +1453,10 @@
       height: auto;
       max-height: none;
     }
-    .player-resizer {
+    .player-resizer,
+    .layout-pill,
+    .note-resizer,
+    .shortcut-wrap {
       display: none;
     }
 
@@ -1031,7 +1469,7 @@
       flex-wrap: wrap;
     }
     .editor-area {
-      padding: 0.9rem 1rem 3rem;
+      padding: 0.9rem 1rem calc(3rem + var(--safe-bottom));
     }
   }
 </style>
