@@ -1,6 +1,6 @@
 [package]
 name = "notavid"
-version = "0.1.2"
+version = "0.2.0"
 description = "Take notes from YouTube videos — the video pauses while you type"
 authors = ["Ali Tahseen"]
 edition = "2021"
