@@ -6,6 +6,9 @@ source scripts/_lib.sh
 step "svelte-check (frontend)"
 npm run check
 
+step "svelte-check (chrome extension)"
+(cd extension && npm run check)
+
 step "cargo check (backend)"
 (cd src-tauri && cargo check)
 

@@ -1,0 +1,303 @@
+/*
+ * The Notavid desktop app's look (src/app.css + its components), scoped to
+ * the extension's root element — the panel lives inside YouTube's page, so
+ * nothing here may touch :root. Tokens are YouTube's own: white / #0f0f0f
+ * bases, translucent chips, red for the auto-pause switch.
+ */
+.nv {
+  --yt-base: #ffffff;
+  --yt-raised: #ffffff;
+  --yt-menu: #ffffff;
+  --yt-chip: rgba(0, 0, 0, 0.05);
+  --yt-chip-hover: rgba(0, 0, 0, 0.1);
+  --yt-active: rgba(0, 0, 0, 0.1);
+  --yt-border: rgba(0, 0, 0, 0.1);
+  --yt-text: #0f0f0f;
+  --yt-text-secondary: #606060;
+  --yt-red: #ff0000;
+  --yt-blue: #065fd4;
+  --yt-green: #2ba640;
+  --yt-scrim: rgba(0, 0, 0, 0.5);
+  --yt-shadow: 0 4px 32px rgba(0, 0, 0, 0.1);
+  --yt-menu-shadow: 0 4px 32px rgba(0, 0, 0, 0.16), 0 1px 3px rgba(0, 0, 0, 0.12);
+  color-scheme: light;
+
+  background: var(--yt-base);
+  color: var(--yt-text);
+  font-family:
+    "Roboto", -apple-system, BlinkMacSystemFont, "SF Arabic", "Segoe UI", "Noto Sans Arabic", Arial,
+    sans-serif;
+  font-size: 14px;
+  line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+.nv[data-theme="dark"] {
+  --yt-base: #0f0f0f;
+  --yt-raised: #212121;
+  --yt-menu: #282828;
+  --yt-chip: rgba(255, 255, 255, 0.1);
+  --yt-chip-hover: rgba(255, 255, 255, 0.2);
+  --yt-active: rgba(255, 255, 255, 0.2);
+  --yt-border: rgba(255, 255, 255, 0.2);
+  --yt-text: #f1f1f1;
+  --yt-text-secondary: #aaaaaa;
+  --yt-blue: #3ea6ff;
+  --yt-scrim: rgba(0, 0, 0, 0.6);
+  --yt-shadow: 0 4px 32px rgba(0, 0, 0, 0.5);
+  --yt-menu-shadow: 0 4px 32px rgba(0, 0, 0, 0.6);
+  color-scheme: dark;
+}
+
+.nv *,
+.nv *::before,
+.nv *::after {
+  box-sizing: border-box;
+}
+.nv button,
+.nv input {
+  font-family: inherit;
+  color: inherit;
+}
+.nv button {
+  cursor: pointer;
+}
+.nv ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.nv ::-webkit-scrollbar-thumb {
+  background: var(--yt-chip-hover);
+  border-radius: 4px;
+}
+.nv ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Brand: the red play mark + wordmark from the desktop sidebar. */
+.nv .brand-mark {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 20px;
+  flex: none;
+  border-radius: 6px;
+  background: var(--yt-red);
+  color: #fff;
+}
+.nv .wordmark {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  white-space: nowrap;
+}
+
+/* Round icon button. */
+.nv .icon-btn {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--yt-text);
+}
+.nv .icon-btn:hover {
+  background: var(--yt-chip);
+}
+
+/* Chip: tabs and choice groups; the selected one inverts. */
+.nv .chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.nv .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 8px;
+  background: var(--yt-chip);
+  color: var(--yt-text);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.nv .chip:hover {
+  background: var(--yt-chip-hover);
+}
+.nv .chip.selected,
+.nv .chip[aria-selected="true"] {
+  background: var(--yt-text);
+  color: var(--yt-base);
+}
+
+/* Pill: small rounded action with an icon (timestamp, copy…). */
+.nv .pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 14px;
+  background: var(--yt-chip);
+  color: var(--yt-text);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.nv .pill:hover {
+  background: var(--yt-chip-hover);
+}
+.nv .pill.square {
+  width: 28px;
+  padding: 0;
+  justify-content: center;
+}
+.nv .time {
+  font-variant-numeric: tabular-nums;
+  direction: ltr;
+}
+
+/* The red auto-pause switch. */
+.nv .toggle {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  flex: none;
+  padding: 0;
+  border: none;
+  border-radius: 11px;
+  background: var(--yt-chip-hover);
+  transition: background 0.15s;
+}
+.nv .toggle.on {
+  background: var(--yt-red);
+}
+.nv .toggle .knob {
+  position: absolute;
+  top: 3px;
+  inset-inline-start: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s;
+}
+.nv .toggle.on .knob {
+  transform: translateX(16px);
+}
+.nv[dir="rtl"] .toggle.on .knob {
+  transform: translateX(-16px);
+}
+
+/* Status dot: green on, grey off, pulsing red while holding the video. */
+.nv .dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--yt-green);
+}
+.nv .dot.off {
+  background: var(--yt-text-secondary);
+}
+.nv .dot.pulsing {
+  background: var(--yt-red);
+  animation: nv-pulse 1s ease-in-out infinite;
+}
+@keyframes nv-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Rounded search / text field. */
+.nv .field-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--yt-border);
+  border-radius: 18px;
+  background: var(--yt-base);
+  color: var(--yt-text-secondary);
+}
+.nv .field-input:focus-within {
+  border-color: var(--yt-blue);
+}
+.nv .field-input input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--yt-text);
+  font-size: 13.5px;
+}
+.nv .field-input input::placeholder {
+  color: var(--yt-text-secondary);
+}
+
+.nv .muted {
+  color: var(--yt-text-secondary);
+}
+
+/* Transcript and lyrics views: status messages, footer bar, badges. */
+.nv .message {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 20px 16px 12px;
+  color: var(--yt-text-secondary);
+  text-align: center;
+}
+.nv .spinner {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border: 2px solid var(--yt-chip-hover);
+  border-top-color: var(--yt-text);
+  border-radius: 50%;
+  animation: nv-spin 0.8s linear infinite;
+}
+@keyframes nv-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.nv .tab-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--yt-border);
+  font-size: 12px;
+  color: var(--yt-text-secondary);
+}
+.nv .tab-footer .spacer {
+  flex: 1;
+}
+.nv .tab-footer a {
+  color: inherit;
+  text-decoration: none;
+}
+.nv .tab-footer a:hover {
+  text-decoration: underline;
+}
+.nv .badge {
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--yt-chip);
+}
+.nv .badge.synced {
+  color: var(--yt-green);
+}

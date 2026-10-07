@@ -9,6 +9,9 @@ targets=(
   "build"              # sveltekit output
   ".svelte-kit"        # sveltekit generated files (rebuilt by 'npm run check'/dev)
   "node_modules/.vite" # vite pre-bundle cache
+  "extension/.output"  # chrome extension build output (make ext)
+  "extension/.wxt"     # wxt generated types (rebuilt by npm install/check)
+  "extension/node_modules/.vite"
 )
 
 total=0

@@ -1,0 +1,6 @@
+{
+  "extName": { "message": "Notavid — ملاحظات YouTube" },
+  "extDescription": {
+    "message": "دوّن ملاحظات Markdown بجانب أي فيديو على YouTube. يتوقف الفيديو مؤقتًا أثناء الكتابة ويُستأنف عند التوقف، مع كلمات الأغاني المتزامنة."
+  }
+}

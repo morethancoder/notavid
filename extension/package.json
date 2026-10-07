@@ -1,0 +1,29 @@
+{
+  "name": "notavid-extension",
+  "version": "0.1.0",
+  "description": "Take markdown notes on YouTube; the video pauses while you type.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "build": "wxt build",
+    "zip": "wxt zip",
+    "check": "wxt prepare && svelte-check --tsconfig ./tsconfig.json",
+    "postinstall": "wxt prepare",
+    "test": "node tests/e2e.mjs"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@wxt-dev/module-svelte": "^2.0.5",
+    "playwright": "^1.63.0",
+    "svelte": "^5.57.1",
+    "svelte-check": "^4.7.6",
+    "typescript": "^6.0.3",
+    "web-ext": "^10.7.0",
+    "wxt": "^0.21.4"
+  },
+  "dependencies": {
+    "@milkdown/crepe": "^7.22.2",
+    "@milkdown/kit": "^7.22.2"
+  }
+}

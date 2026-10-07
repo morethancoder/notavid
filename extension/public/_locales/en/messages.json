@@ -1,0 +1,6 @@
+{
+  "extName": { "message": "Notavid — notes for YouTube" },
+  "extDescription": {
+    "message": "Take markdown notes beside any YouTube video. The video pauses while you type and resumes when you stop. Lyrics follow along."
+  }
+}

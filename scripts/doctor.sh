@@ -15,6 +15,12 @@ if [ "$(uname)" = "Darwin" ]; then
   }
 fi
 
+# Only needed for 'make extinstall' — warn, don't fail.
+if [ "$(uname)" = "Darwin" ]; then
+  [ -d "/Applications/Google Chrome.app" ] && ok "google chrome (for the extension)" \
+    || warn "google chrome not found — needed only for 'make extinstall'"
+fi
+
 if [ "$fail" = "1" ]; then
   err "some tools are missing — fix the hints above and re-run 'make doctor'"
   exit 1
